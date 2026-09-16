@@ -1,0 +1,48 @@
+name: Novopay-WhatsApp-Bot
+
+on:
+  workflow_dispatch:        # Manual trigger from GitHub UI
+  push:
+    branches: [main]        # Auto-deploy on push to main
+  schedule:
+    - cron: '0 */5 * * *'  # Keep-alive restart every 5 hours
+
+jobs:
+  deploy:
+    name: Run Novopay Bot
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci --omit=dev
+
+      - name: 🔐 Restore WhatsApp Session
+        run: |
+          if [ -n "${{ secrets.SESSION_DATA }}" ]; then
+            echo "${{ secrets.SESSION_DATA }}" | base64 -d > session_data.tar.gz
+            tar -xzf session_data.tar.gz || echo "No existing session to restore."
+          fi
+
+      - name: 🤖 Start Novopay AI Bot
+        env:
+          FIREBASE_URL: ${{ secrets.FIREBASE_URL }}
+          NODE_ENV: production
+        run: timeout 290m npm start || true
+        # 290 min = just under GitHub's 6-hour job limit
+
+      - name: 💾 Save WhatsApp Session
+        if: always()
+        run: |
+          if [ -d "session_data" ]; then
+            tar -czf session_data.tar.gz session_data/
+            echo "SESSION_DATA=$(base64 -w 0 session_data.tar.gz)" >> $GITHUB_OUTPUT
+          fi
